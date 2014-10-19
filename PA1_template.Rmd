@@ -1,0 +1,161 @@
+---
+output: html_document
+---
+File is already downloaded in RR folder and unziped it. File name is activity.csv, Following code will read csv file. But first step is to set RR folder as working dir.
+Step 1: Loading and preprocessing the data
+```{r}
+setwd("~/data/RR")
+act<-read.csv("activity.csv")
+summary(act)
+```
+Step 2: What is mean total number of steps taken per day?
+
+First we need to convert date into proper formet so, we can read it later. Format is YY/MM/DD HH:MM
+```{r}
+act$datetime <- as.POSIXct( with( 
+      act,
+      paste(
+        date,
+        paste(interval %/% 100, interval %% 100, sep=":"))
+      ),
+      format="%Y-%m-%d %H:%M",tz="")
+```
+
+
+Step 2.1 
+Make a histogram of the total number of steps taken each day
+To answer this question first we need to find total number of steps taken per day. stepsPerDay contain data of total number of steps per day. hist1 is histrogram of number of steps per day
+```{r}
+library(ggplot2)
+library(scales)
+library(grid)
+
+stepsPerDay <- setNames(
+      aggregate(
+          steps~as.Date(date),
+          act,
+          sum,
+          na.rm = TRUE),
+      c("date","steps")
+    )
+
+
+hist(as.numeric(stepsPerDay$steps),breaks=20, col = "red", xlab = "Number of Steps", main= "Histogram of the total number of steps taken each day")
+```
+Above graph is histogram 
+Step 2.2 
+Calculate and report the mean and median total number of steps taken per day
+
+Following command will calcuate mean and median 
+```{r}
+ meanMedian <- c(mean = mean(stepsPerDay$steps),median = median(stepsPerDay$steps))
+  print(meanMedian)
+```
+Step 3:
+What is the average daily activity pattern?
+
+Step 3.1
+Make a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+```{r}
+Pattern <- aggregate(steps~interval,act,mean,na.rm = TRUE)
+Pattern$time <- as.POSIXct(with(Pattern,paste(interval %/% 100, interval %% 100, sep=":")),format="%H:%M")
+timeSeriesPlotAverageStepsAcrossAllDay <- ggplot(Pattern,aes(x=time,y=steps)) + 
+          geom_line() + 
+          scale_x_datetime(breaks = date_breaks("2 hour"),labels = date_format("%H:%M"))
+print(timeSeriesPlotAverageStepsAcrossAllDay)
+```
+Above graph is time serise plot
+
+Step 3.2
+Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+```{r}
+with(Pattern,Pattern[steps == max(steps),])
+```
+Step 4: Imputing missing values
+
+Step 4.1: 
+Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NAs)
+```{r}
+missingValue <- aggregate(cnt~date,cbind(act[is.na(act$steps),],cnt=c(1)),sum,na.rm = FALSE)
+missingValue$dayName <- weekdays(as.Date(missingValue$date),abbreviate=TRUE)
+print(missingValue[,c(1,3,2)])
+```
+
+```{r}
+unique(missingValue$dayName)
+```
+Step 4.2
+Devise a strategy for filling in all of the missing values in the dataset. The strategy does not need to be sophisticated. For example, you could use the mean/median for that day, or the mean for that 5-minute interval, etc.
+```{r}
+ReferenceValueForReplacement <- aggregate(steps~interval+weekdays(datetime,abbreviate=TRUE),act,FUN=mean,na.rm=TRUE)
+colnames(ReferenceValueForReplacement) <- c("interval","dow","avg_steps")
+ReferenceValueForReplacement$dow <- factor(ReferenceValueForReplacement$dow,levels = c("Mon","Tue","Wed","Thu","Fri","Sat","Sun"))
+ggplot(ReferenceValueForReplacement,aes(x=interval,y=avg_steps)) + geom_line() + facet_grid("dow ~ .")
+```
+Above graph shows number of average steps per interval for different days.
+
+Step 4.3
+Create a new dataset that is equal to the original dataset but with the missing data filled in.
+```{r}
+act$dow <- weekdays(act$datetime,abbreviate=TRUE)
+NewDataSetWithNaRemoved <- merge(act,ReferenceValueForReplacement,by=c("dow","interval"),all.x = TRUE)
+NewDataSetWithNaRemoved <- NewDataSetWithNaRemoved[with(NewDataSetWithNaRemoved,order(date,interval)),]
+NewDataSetWithNaRemoved$fixed_steps <- ifelse(is.na(NewDataSetWithNaRemoved$steps),NewDataSetWithNaRemoved$avg_steps,NewDataSetWithNaRemoved$steps)
+```
+Step 4.4:
+Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. Do these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
+```{r}
+library(gridExtra)
+# calculating data set for histogram
+  stepsPerDayNaRemoved <- setNames(
+      aggregate(
+          fixed_steps~as.Date(date),
+          NewDataSetWithNaRemoved,
+          sum,
+          na.rm = TRUE),
+      c("date","steps")
+    )
+
+par(mfrow=c(2,1))
+hist(as.numeric(stepsPerDay$steps),breaks=20, col = "red", xlab = "Number of Steps", main= "Histogram of the total number of steps taken each day")
+hist(as.numeric(stepsPerDayNaRemoved$steps),breaks=20, col = "red", xlab = "Number of Steps", main= "Histogram of the total number of steps taken each day NA removed")
+
+```
+As we can see that, number of steps per day is higher than original data.
+
+Step 5: Are there differences in activity patterns between weekdays and weekends?
+
+Step 5.1
+Create a new factor variable in the dataset with two levels - "weekday" and "weekend" indicating whether a given date is a weekday or weekend day.
+```{r}
+meanMedianNaRemove <- c(mean = mean(stepsPerDayNaRemoved$steps),median = median(stepsPerDayNaRemoved$steps))
+  comparisonOfMeanMedianofOriginalAndNaRemoved <- rbind(original = meanMedian, NaRemoved = meanMedianNaRemove, Change = meanMedianNaRemove-meanMedian)
+  print(comparisonOfMeanMedianofOriginalAndNaRemoved)
+```
+Step 5.2
+Make a panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis). The plot should look something like the following, which was creating using simulated data:
+```{r}
+week_difference <- aggregate(
+  steps~dow+interval,  # group steps by weekend/weekday and interval to find average steps 
+  with(
+    act,
+    data.frame(
+      dow = factor(
+        ifelse(
+          weekdays(as.Date(date)) %in% c("Sunday","Saturday"),
+          "weekend",  # if sunday or saturday
+          "weekday"   # else
+        )
+      ),
+      interval,
+      steps
+    )
+  ),
+  FUN = mean,
+  rm.na = TRUE
+)
+
+  ggplot(week_difference,aes(x=interval,y=steps)) + geom_line() + facet_grid("dow ~ .")
+```
+As we can see that there is maximum steps per interval is in weekday however, average of steps per interval is higher during weekend.
+
